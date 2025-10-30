@@ -1,0 +1,203 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLAYER
+  COACH
+}
+
+enum PlayerLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  PRO
+}
+
+enum SessionRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String?
+  name          String
+  phone         String?
+  role          UserRole
+  languages     String[]       @default([])
+  avatar        String?
+  timezone      String         @default("UTC")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  playerProfile PlayerProfile?
+  coachProfile  CoachProfile?
+  groups        Group[]        @relation("GroupMembers")
+  ownedGroups   Group[]        @relation("GroupOwner")
+  messages      Message[]
+  bookings      Booking[]      @relation("PlayerBookings")
+  reviews       Review[]
+  demandPings   DemandPing[]
+  auditEvents   AuditEvent[]
+}
+
+model PlayerProfile {
+  userId      String   @id
+  level       PlayerLevel
+  homeLocation Unsupported("geometry(Point, 4326)")
+  bio         String?
+  user        User     @relation(fields: [userId], references: [id])
+  groups      Group[]  @relation("GroupOwner")
+}
+
+model CoachProfile {
+  userId         String   @id
+  headline       String
+  bio            String?
+  baseLocation   Unsupported("geometry(Point, 4326)")
+  pricePerHour   Decimal  @db.Money
+  radiusKm       Float
+  certifications String[] @default([])
+  sports         String[] @default([])
+  levels         PlayerLevel[] @default([])
+  languages      String[] @default([])
+  stripeAccountId String?
+  ratingAvg      Float    @default(0)
+  ratingCount    Int      @default(0)
+  user           User     @relation(fields: [userId], references: [id])
+  availabilities Availability[]
+  media          CoachMedia[]
+  bookings       Booking[]      @relation("CoachBookings")
+}
+
+model Availability {
+  id         String   @id @default(cuid())
+  coachId    String
+  weekday    Int
+  startTime  String
+  endTime    String
+  exceptions Json?
+  coach      CoachProfile @relation(fields: [coachId], references: [userId])
+}
+
+model CoachMedia {
+  id      String   @id @default(cuid())
+  coachId String
+  url     String
+  type    String
+  coach   CoachProfile @relation(fields: [coachId], references: [userId])
+}
+
+model Group {
+  id             String   @id @default(cuid())
+  name           String
+  ownerPlayerId  String
+  members        User[]   @relation("GroupMembers")
+  owner          User     @relation("GroupOwner", fields: [ownerPlayerId], references: [id])
+  sessionRequests SessionRequest[]
+  bookings       Booking[]
+}
+
+model SessionRequest {
+  id                  String               @id @default(cuid())
+  createdByPlayerId   String
+  groupId             String?
+  coachId             String
+  sport               String
+  skillLevel          PlayerLevel
+  location            Unsupported("geometry(Point, 4326)")
+  preferredTimes      Json
+  durationMinutes     Int
+  notes               String?
+  status              SessionRequestStatus @default(PENDING)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  createdByPlayer     User                 @relation(fields: [createdByPlayerId], references: [id])
+  group               Group?               @relation(fields: [groupId], references: [id])
+  coach               CoachProfile         @relation(fields: [coachId], references: [userId])
+  booking             Booking? @relation("RequestBooking")
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  playerId        String?
+  groupId         String?
+  coachId         String
+  sessionRequestId String?
+  start           DateTime
+  end             DateTime
+  price           Decimal       @db.Money
+  currency        String        @default('usd')
+  status          BookingStatus @default(PENDING)
+  paymentIntentId String?
+  payoutId        String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  player          User?         @relation("PlayerBookings", fields: [playerId], references: [id])
+  group           Group?        @relation(fields: [groupId], references: [id])
+  coach           CoachProfile  @relation("CoachBookings", fields: [coachId], references: [userId])
+  review          Review?
+  sessionRequest  SessionRequest? @relation("RequestBooking", fields: [sessionRequestId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  rating    Int
+  text      String?
+  createdAt DateTime @default(now())
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+}
+
+model DemandPing {
+  id        String   @id @default(cuid())
+  playerId  String?
+  location  Unsupported("geometry(Point, 4326)")
+  sport     String
+  level     PlayerLevel
+  timestamp DateTime @default(now())
+  player    User?    @relation(fields: [playerId], references: [id])
+}
+
+model MessageThread {
+  id             String    @id @default(cuid())
+  subject        String
+  participantIds String[]
+  messages       Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  threadId  String
+  senderId  String
+  text      String
+  createdAt DateTime @default(now())
+  thread    MessageThread @relation(fields: [threadId], references: [id])
+  sender    User          @relation(fields: [senderId], references: [id])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  type      String
+  actorId   String?
+  entity    String
+  entityId  String
+  payload   Json
+  createdAt DateTime @default(now())
+  actor     User?    @relation(fields: [actorId], references: [id])
+}
